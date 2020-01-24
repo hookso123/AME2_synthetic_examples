@@ -11,11 +11,14 @@ function version of test enviroment for two_test_toy AME
 import two_test_toy_AME
 import numpy as np
 
-def test(x,y,z,cz,cy,B,nthreads,problem,acquisition_function):
+def test(x,y,z,cz,cy,B,nthreads,problem,acquisition_function,p1_for_thompson_fixed=None):
     """ lists to store simulation history """
     History=[]
     """ initialize prospector """
     P=two_test_toy_AME.toy_prospector(x,cz,cy,B,problem,acquisition_function)
+    """ fix p1 if required """
+    if p1_for_thompson_fixed!=None:
+        P.p1=p1_for_thompson_fixed
     """ start by single test of subject 0 """
     P.uu.remove(0)
     P.tt.append(0)
@@ -24,8 +27,11 @@ def test(x,y,z,cz,cy,B,nthreads,problem,acquisition_function):
     P.y[0]=y[0]
     """ now follow controller """
     """ set up initial jobs seperately """
+    """ worker = (i,j) if doing test j on candidate i """
     workers=[(0,0) for i in range(nthreads)]
+    """ time when worker current job will finish """
     finish_time=np.zeros(nthreads)
+    """ start up initial jobs """
     for i in range(nthreads):
         ipick=P.pick()
         if ipick in P.uu:
@@ -40,6 +46,7 @@ def test(x,y,z,cz,cy,B,nthreads,problem,acquisition_function):
             finish_time[i]=np.random.uniform(cy,cy*2)
     """ main loop """
     while P.b>=cy:
+        """ pick next job to finish """
         i=np.argmin(finish_time)
         t=finish_time[i]
         idone=workers[i][0]

@@ -15,7 +15,7 @@ import numpy as np
 
 def go(kkk):
     
-    for iii in range(kkk*5,(kkk+1)*5):
+    for iii in range(10*kkk,10*(kkk+1)):
         
         jjj=2
         """ load problem data and settings """
