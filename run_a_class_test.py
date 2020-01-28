@@ -15,7 +15,7 @@ import pickle
 
 iii=0
 jjj=2
-with open('../problems/problem_data_'+str(iii)+'_'+str(jjj)+'.pkl', 'rb') as f:
+with open('../data/problems/problem_data_'+str(iii)+'_'+str(jjj)+'.pkl', 'rb') as f:
     problem = pickle.load(f)  
 
 x=problem['x']
@@ -26,6 +26,6 @@ cy=1
 cz=0.2
 B=50
 
-ame=two_test_toy_AME.toy_prospector(x,cz,cy,B,problem,'ThompsonAdapt')
+ame=two_test_toy_AME.toy_prospector(x,cz,cy,B,problem,'ThompsonEntropy')
 sim_env=test_env_class.ParallelScreener(ame,y,z,cz,cy,1)
 sim_env.full_screen(ploton=True)

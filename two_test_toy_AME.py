@@ -13,6 +13,12 @@ import matplotlib.pyplot as plt
 from sklearn.metrics.pairwise import euclidean_distances
 from scipy.stats import norm
 
+def entropy(x):
+    I=[i for i in range(len(x)) if x[i]>0 and x[i]<1]
+    H=-np.multiply(x[I],np.log(x[I]))
+    h=sum(H)
+    return h
+
 class toy_prospector:
     
     """ set up arrays for data and lists of status as well as GP hyperparameters
@@ -66,6 +72,7 @@ class toy_prospector:
             SIG_y_pos=SIG_y[np.ix_(self.uu+self.tu,self.uu+self.tu)]-np.matmul(SIG_y[np.ix_(self.uu+self.tu,self.tt)],np.linalg.solve(SIG_y[np.ix_(self.tt,self.tt)],SIG_y[np.ix_(self.tt,self.uu+self.tu)]))
             mu_y_pos=np.matmul(SIG_y[np.ix_(self.uu+self.tu,self.tt)],np.linalg.solve(SIG_y[np.ix_(self.tt,self.tt)],self.y[self.tt]))
             ysamples[self.uu+self.tu,i*ny:(i+1)*ny]=np.random.multivariate_normal(mu_y_pos,SIG_y_pos,ny).T
+        self.SIG_y=SIG_y
         return zsamples,ysamples
     
     """ estimate threshold for approx reward function """  
@@ -235,7 +242,102 @@ class toy_prospector:
             self.update_p1()
             self.upcount=0  
         return self.Thompson()
-    
+
+    """ draw samples from posterior """ 
+    """ conditional on extra data at iuu and itu """
+    """ conditional on single z for iuu value and single y value for itu """
+    def sample_conditional_z_y(self,nz,ny,iuu,z_iuu,itu,y_itu):  
+        uuc=self.uu.copy()
+        uuc.remove(iuu)
+        tuc=self.tu.copy()
+        tuc.remove(itu)
+        zsamples=np.zeros((self.n,nz))
+        zsamples[self.tu+self.tt,:]=np.repeat(self.z[self.tu+self.tt].reshape(-1,1),nz,1)
+        zsamples[iuu,:]=z_iuu
+        SIG_z_pos=self.SIG_z[np.ix_(uuc,uuc)]-np.matmul(self.SIG_z[np.ix_(uuc,self.tu+self.tt+[iuu])],np.linalg.solve(self.SIG_z[np.ix_(self.tu+self.tt+[iuu],self.tu+self.tt+[iuu])],self.SIG_z[np.ix_(self.tu+self.tt+[iuu],uuc)]))
+        mu_z_pos=np.matmul(self.SIG_z[np.ix_(uuc,self.tu+self.tt+[iuu])],np.linalg.solve(self.SIG_z[np.ix_(self.tu+self.tt+[iuu],self.tu+self.tt+[iuu])],zsamples[self.tu+self.tt+[iuu],0]))
+        zsamples[uuc,:]=np.random.multivariate_normal(mu_z_pos,SIG_z_pos,nz).T
+        ysamples=np.zeros((self.n,ny*nz))
+        ysamples[self.tt,:]=np.repeat(self.y[self.tt].reshape(-1,1),ny*nz,1)
+        ysamples[itu,:]=y_itu
+        ydata=np.zeros(len(self.tt)+1)
+        ydata[:-1]=self.y[self.tt]
+        ydata[-1]=y_itu
+        for i in range(nz):
+            Dz=euclidean_distances(zsamples[:,i].reshape(-1,1),zsamples[:,i].reshape(-1,1),squared=True)
+            SIG_y=self.ay**2*np.exp(-self.Dx*self.lyx**2/2-Dz*self.lyz**2/2)+self.by**2*np.identity(self.n)
+            SIG_y_pos=SIG_y[np.ix_(self.uu+tuc,self.uu+tuc)]-np.matmul(SIG_y[np.ix_(self.uu+tuc,self.tt+[itu])],np.linalg.solve(SIG_y[np.ix_(self.tt+[itu],self.tt+[itu])],SIG_y[np.ix_(self.tt+[itu],self.uu+tuc)]))
+            mu_y_pos=np.matmul(SIG_y[:,self.tt+[itu]],np.linalg.solve(SIG_y[np.ix_(self.tt+[itu],self.tt+[itu])],ydata))
+            ysamples[self.uu+tuc,i*ny:(i+1)*ny]=np.random.multivariate_normal(mu_y_pos[self.uu+tuc],SIG_y_pos,ny).T
+        return ysamples
+
+
+    def ThompsonEntropy(self):
+        res=5
+        ZR=np.linspace(-2,2,res)
+        PR=norm.pdf(ZR)
+        PR=PR/np.sum(PR)
+        """ two independent Thompson samples """
+        zsample,alpha12=self.sample(2,1)
+        uua=[i for i in self.uu if i not in self.tz]
+        tua=[i for i in self.tu if i not in self.ty]
+        iuu=uua[np.argmax(alpha12[uua,0])]
+        if len(tua)>0:
+            itu=tua[np.argmax(alpha12[tua,1])]
+            """ integrate over zuu to estimate profit of action z """
+            mu_uuz=np.matmul(self.SIG_z[iuu,self.tt+self.tu],np.linalg.solve(self.SIG_z[np.ix_(self.tt+self.tu,self.tt+self.tu)],self.z[self.tt+self.tu]))
+            SIG_uuz=self.SIG_z[iuu,iuu]-np.matmul(self.SIG_z[iuu,self.tt+self.tu],np.linalg.solve(self.SIG_z[np.ix_(self.tt+self.tu,self.tt+self.tu)],self.SIG_z[self.tt+self.tu,iuu]))
+            mu_tuy=np.matmul(self.SIG_y[itu,self.tt],np.linalg.solve(self.SIG_y[np.ix_(self.tt,self.tt)],self.y[self.tt]))
+            SIG_tuy=self.SIG_y[itu,itu]-np.matmul(self.SIG_y[itu,self.tt],np.linalg.solve(self.SIG_y[np.ix_(self.tt,self.tt)],self.SIG_y[self.tt,iuu]))
+            ZuuR=mu_uuz+ZR*SIG_uuz**0.5
+            YtuR=mu_tuy+ZR*SIG_tuy**0.5
+            mz=5
+            my=100
+            P=np.zeros((self.n,res,res))
+            for i in range(res):
+                for j in range(res):
+                    YS=self.sample_conditional_z_y(mz,my,iuu,ZuuR[i],itu,YtuR[j])
+                    for k in range(mz*my):
+                        I=[np.argpartition(YS[:,k],-self.N)[-self.N:]]
+                        P[I,i,j]+=1
+            P=P/(mz*my)
+            p=np.zeros(self.n)
+            for i in range(res):
+                for j in range(res):
+                    p=p+PR[j]*PR[i]*P[:,i,j]
+            H=entropy(p)
+            Hz=np.zeros(res)
+            for i in range(res):
+                p=np.zeros(self.n)
+                for j in range(res):
+                    p=p+PR[j]*P[:,i,j]
+                Hz[i]=entropy(p)
+            Hy=np.zeros(res)
+            for j in range(res):
+                p=np.zeros(self.n)
+                for i in range(res):
+                    p=p+PR[i]*P[:,i,j]
+                Hy[j]=entropy(p)
+            plt.plot(H-Hz,label='z')
+            plt.plot(H-Hy,label='y')
+            plt.legend()
+            plt.show()
+            plt.plot(PR*(H-Hz),label='z')
+            plt.plot(PR*(H-Hy),label='y')
+            plt.legend()
+            plt.show()
+            """ differential entropy """
+            DEz=np.dot(H-Hz,PR)
+            DEy=np.dot(H-Hy,PR)
+            """ reward/cost ratio of different actions """
+            alphay=DEy/self.cy
+            alphaz=DEz/self.cz
+            print(alphay)
+            print(alphaz)
+            if alphay>alphaz:
+                return itu
+        return iuu
+            
     def pick(self):
         if self.acquisition_function=='greedyN':
             return self.greedyN() 
@@ -245,6 +347,8 @@ class toy_prospector:
             return self.Thompson()
         if self.acquisition_function=='ThompsonAdapt':
             return self.ThompsonAdapt()
+        if self.acquisition_function=='ThompsonEntropy':
+            return self.ThompsonEntropy()
         print('enter a valid acquisition function!')
         
     def plot(self,x,y,z):
